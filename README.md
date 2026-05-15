@@ -52,7 +52,6 @@ python -m nuitka --standalone --onefile --enable-plugin=anti-bloat,implicit-impo
 4. Set the **Base URL** to `http://127.0.0.1:4000/v1` (the proxy's port).
 5. Set your Token Limit comfortably high (e.g., `100000`). The proxy will handle the actual hardware limits.
 
-![Visual Studio Configuration](assets/vs_config.png)
 
 ## 🖥️ Backend Server Examples
 
