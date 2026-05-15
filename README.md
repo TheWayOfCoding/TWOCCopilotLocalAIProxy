@@ -1,23 +1,23 @@
 # TWOC Visual Studio Copilot Local AI Proxy
 
-A lightweight, intelligent API middleware designed to bridge the gap between strict enterprise IDEs (like Visual Studio 2026) and local LLM servers (like `llama.cpp` and `Ollama`).
+A lightweight, intelligent API middleware designed to bridge the gap between Visual Studio 2026's built-in Copilot chat system using the Ollama option and local LLM servers (like `llama.cpp` and `Ollama`).
 
 ## ⚠️ The Problem it Solves
 
-When using local AI models with IDE agents like GitHub Copilot, you will eventually hit two massive roadblocks:
+When using local AI models with IDE agents like GitHub Copilot, you will eventually hit two roadblocks:
 
-1. **The Context Crash (400 Bad Request):** Copilot sends massive hidden payloads containing your workspace context and tool JSON schemas. If this exceeds your local model's context limit (e.g., 32k), the local server crashes.
+1. **The Context Crash (400 Bad Request):** Copilot sends large hidden payloads containing your workspace context and tool JSON schemas. If this exceeds your local model's context limit (e.g., yhe default of 32k this script uses), the local server crashes.
 
-2. **The IDE Timeout:** Processing 30,000 tokens on a local GPU/CPU takes time. If the local model takes longer than 30 seconds to read the prompt, Visual Studio assumes the server is dead and drops the connection.
+2. **The IDE Timeout:** Processing 30,000 tokens on a local GPU/CPU can take time depending on your hardware. If the local model takes longer than 30 seconds to read the prompt, Visual Studio assumes the server is dead and drops the connection. This allows you to run large models on modest hardware as long as you are okay with waiting.
 
 ## 🚀 The Solution
 
-This proxy sits between Visual Studio and your local AI. It intercepts the payload and provides:
+This proxy sits between Visual Studio and your local LLM. It intercepts the payload and provides:
 
 * **Smart Compaction:** If the payload exceeds your budget, it intelligently drops the oldest chat history while strictly pinning your System Prompts and Copilot Tool schemas so the AI never loses its capabilities.
-* **Anti-Timeout Heartbeats:** While your local AI is crunching the massive code context, the proxy streams `[Keep-Alive]` packets to Visual Studio to prevent the IDE from timing out.
+* **Anti-Timeout Heartbeats:** While your local AI is processing the massive code context, the proxy streams `[Keep-Alive]` packets to Visual Studio to prevent the IDE from timing out.
 * **Assistant Prefill Scrubbing:** Converts trailing assistant messages into inline hints rather than letting them cause 400 errors.
-* **Dynamic Model Detection:** Automatically queries `/v1/models` on the backend at startup to use whatever model is currently loaded — no manual model name configuration needed.
+* **Dynamic Model Detection:** Automatically queries `/v1/models` on the backend at startup to use whatever model is currently loaded, no manual model name configuration needed.
 * **Transparent Pass-Through:** All non-chat endpoints (e.g. `/v1/models`) are forwarded directly to the backend, so IDE model discovery works out of the box.
 
 ## 🛠️ Installation & Usage
@@ -46,11 +46,13 @@ python -m nuitka --standalone --onefile --enable-plugin=anti-bloat,implicit-impo
 
 ## 🔌 Connecting to Visual Studio 2026
 
-1. Open Visual Studio 2026.
-2. Navigate to **Options -> GitHub Copilot -> Local Model / Endpoints**.
-3. Set the **Provider** to `Local-AI` (or equivalent).
+1. Open Visual Studio 2026. 
+2. Navigate to **Options -> GitHub Copilot -> Local Model / Endpoints**. Or access the feature of adding providers through the Copilot chat panel inside the drop-down list where built-in options like Claude and ChatGPT exist.
+3. Set the **Provider** to Ollama.
 4. Set the **Base URL** to `http://127.0.0.1:4000/v1` (the proxy's port).
-5. Set your Token Limit comfortably high (e.g., `100000`). The proxy will handle the actual hardware limits.
+5. Give your AI a name and use that URL again for the related field. It does not need to be the filename of the model because the proxy handles that by communicating with the AI server.
+6. The two token limits can be left at their default values. The proxy will handle the actual hardware limits.
+7. Save and then make sure that entry is checked. From a drop-down provider list, you should see your local model under the Claude and GPT options. 
 
 
 ## 🖥️ Backend Server Examples
@@ -59,12 +61,13 @@ You can point the proxy to any OpenAI-compatible local server. By default, it ta
 
 **llama.cpp Example (Highly Recommended for large contexts):**
 ```bash
-llama-server.exe -m Qwen-Coder-35B.gguf --port 8080 -ngl 12 -c 32768 --flash-attn --prompt-cache prompt.cache
+llama-server.exe -m Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --port 8080 -ngl 9 -t 12 -c 32768 -b 4096 -ub 512 --flash-attn on -ctk q8_0 -ctv q8_0 --alias qwen-coder --mlock
 ```
+Take note that you likely need the coder alias for it to communicate with the IDE in an agentic way.
 
 **Ollama Example:**
 ```bash
-ollama run qwen2.5-coder:32b
+ollama run Qwen3.6-35B-A3B-UD-Q4_K_XL
 
 # Then run the proxy pointing to Ollama's port:
 proxy.exe --target-url http://127.0.0.1:11434
