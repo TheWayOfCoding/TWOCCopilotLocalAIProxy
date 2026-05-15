@@ -53,6 +53,8 @@ python -m nuitka --standalone --onefile --enable-plugin=anti-bloat,implicit-impo
 5. Give your AI a name and use that URL again for the related field. It does not need to be the filename of the model because the proxy handles that by communicating with the AI server.
 6. The two token limits can be left at their default values. The proxy will handle the actual hardware limits.
 7. Save and then make sure that entry is checked. From a drop-down provider list, you should see your local model under the Claude and GPT options. 
+<img width="609" height="531" alt="vs2016-byom-ollama" src="https://github.com/user-attachments/assets/c980edf3-8ef6-4050-8032-2f8c1669e95d" />
+
 
 
 ## 🖥️ Backend Server Examples
@@ -64,6 +66,11 @@ You can point the proxy to any OpenAI-compatible local server. By default, it ta
 llama-server.exe -m Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --port 8080 -ngl 9 -t 12 -c 32768 -b 4096 -ub 512 --flash-attn on -ctk q8_0 -ctv q8_0 --alias qwen-coder --mlock
 ```
 Take note that you likely need the coder alias for it to communicate with the IDE in an agentic way.
+
+heres an additional example for llama.cpp, in this case a smaller LLM meant to fit into 8GB of VRAM ON A GPU. So far I havent had luck with this size of model doing agentic programming with tool calling: 
+```bash
+llama-server.exe -m gemma-4-E4B-it-IQ4_NL.gguf --port 8080 -ngl 99 -c 32768 -b 4096 --flash-attn on -ctk q8_0 -ctv q8_0 --alias gemma-coder
+```
 
 **Ollama Example:**
 ```bash
