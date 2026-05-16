@@ -1,4 +1,3 @@
-```markdown
 # TWOC Visual Studio Copilot Local AI Proxy
 
 A lightweight, intelligent API middleware designed to bridge the gap between Visual Studio 2026's built-in Copilot chat system using the Ollama option and local LLM servers (like `llama.cpp` and `Ollama`).
