@@ -46,6 +46,8 @@ python -m nuitka --standalone --onefile --enable-plugin=anti-bloat,implicit-impo
 
 ## 🔌 Connecting to Visual Studio 2026
 
+<img width="478" height="556" alt="vs-copilot-chat" src="https://github.com/user-attachments/assets/cbc508c9-6210-4c63-98c5-2599729f3428" />
+
 1. Open Visual Studio 2026
 2. Make sure that the Copilot panel is open.  
 3. Access the feature of adding providers through the Copilot chat panel inside the drop-down list where built-in options like Claude and ChatGPT exist.
