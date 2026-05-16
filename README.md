@@ -46,8 +46,9 @@ python -m nuitka --standalone --onefile --enable-plugin=anti-bloat,implicit-impo
 
 ## 🔌 Connecting to Visual Studio 2026
 
-1. Open Visual Studio 2026. 
-2. Navigate to **Options -> GitHub Copilot -> Local Model / Endpoints**. Or access the feature of adding providers through the Copilot chat panel inside the drop-down list where built-in options like Claude and ChatGPT exist.
+1. Open Visual Studio 2026
+2. Make sure that the Copilot panel is open.  
+2. Access the feature of adding providers through the Copilot chat panel inside the drop-down list where built-in options like Claude and ChatGPT exist.
 3. Set the **Provider** to Ollama.
 4. Set the **Base URL** to `http://127.0.0.1:4000/v1` (the proxy's port).
 5. Give your AI a name and use that URL again for the related field. It does not need to be the filename of the model because the proxy handles that by communicating with the AI server.
