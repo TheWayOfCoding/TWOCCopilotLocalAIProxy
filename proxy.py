@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import os
 import sys
 import json
@@ -52,12 +53,11 @@ parser.add_argument("--port", type=int,
 parser.add_argument("--host", type=str, 
                     default=os.getenv("PROXY_HOST", "0.0.0.0"),
                     help="The host IP this proxy will bind to")
-parser.add_argument("--disable-scrub", action="store_true", 
-                    help="Disable trailing assistant prefill scrubbing")
-parser.add_argument("--disable-debug", action="store_true", 
-                    help="Disable writing payloads to proxy_debug.log")
+parser.add_argument("--enable-scrub", action="store_true", 
+                    help="Enable trailing assistant prefill scrubbing (default: disabled)")
+parser.add_argument("--enable-debug", action="store_true", 
+                    help="Enable writing payloads to proxy_debug.log")
 
-# Parse the arguments passed via command line
 args, unknown = parser.parse_known_args()
 
 MAX_CONTEXT_SIZE = args.max_context
@@ -65,12 +65,12 @@ PROMPT_BUDGET = args.prompt_budget
 LLAMA_CPP_URL = args.target_url
 PORT = args.port
 HOST = args.host
-SCRUB_PREFILLS = not args.disable_scrub
-DEBUG_PAYLOADS = not args.disable_debug
+SCRUB_PREFILLS = args.enable_scrub
+DEBUG_PAYLOADS = args.enable_debug  
 DEBUG_LOG_FILE = "proxy_debug.log"
 
 # ==========================================
-# PROXY INITIALIZATION
+# PROXY INITIALIZATION & CONCURRENCY
 # ==========================================
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
 logger = logging.getLogger("UniversalProxy")
@@ -78,8 +78,16 @@ app = FastAPI(title="Strict LLM Compacting Proxy")
 encoder = tiktoken.get_encoding("cl100k_base") 
 ACTIVE_MODEL_ID = None
 
+_proxy_lock = None
+
+def get_proxy_lock():
+    global _proxy_lock
+    if _proxy_lock is None:
+        _proxy_lock = asyncio.Lock()
+    return _proxy_lock
+
 logger.info("="*60)
-logger.info("🚀 STRICT COMPACTING PROXY ONLINE (V4)!")
+logger.info("🚀 STRICT COMPACTING PROXY ONLINE (V5 - Top-and-Tail Truncation)!")
 logger.info(f"🛡️ Context Limit: {MAX_CONTEXT_SIZE} | Prompt Budget: {PROMPT_BUDGET}")
 logger.info(f"🔗 Target Backend: {LLAMA_CPP_URL} | Listening on: {HOST}:{PORT}")
 logger.info(f"🐞 Payload Logging: {'ACTIVE' if DEBUG_PAYLOADS else 'DISABLED'}")
@@ -166,10 +174,23 @@ async def chat_completions(request: Request):
         trailing_tokens = sum(count_msg_tokens(m) for m in trailing_users)
         
         max_user_allowance = max(1000, PROMPT_BUDGET - sys_tokens - tools_tokens - 1000)
+        
+        # FIXED: Top-And-Tail Truncation keeps agent instructions at the top!
         if trailing_tokens > max_user_allowance and trailing_users:
             encoded_user = encoder.encode(trailing_users[0]["content"], disallowed_special=())
-            sliced = encoded_user[-max_user_allowance:]
-            trailing_users[0]["content"] = "[System: Older file context truncated...]\n" + encoder.decode(sliced)
+            if len(encoded_user) > max_user_allowance:
+                keep_top = 2500  # Copilot strict tool-call instructions live here
+                keep_bottom = max_user_allowance - keep_top
+                
+                if keep_bottom > 0:
+                    top_slice = encoded_user[:keep_top]
+                    bottom_slice = encoded_user[-keep_bottom:]
+                    trunc_msg = "\n\n[... PROXY WARNING: Middle of workspace context truncated to respect token budget ...]\n\n"
+                    trailing_users[0]["content"] = encoder.decode(top_slice) + trunc_msg + encoder.decode(bottom_slice)
+                else:
+                    sliced = encoded_user[-max_user_allowance:]
+                    trailing_users[0]["content"] = "[System: Older file context truncated...]\n" + encoder.decode(sliced)
+                    
             trailing_tokens = sum(count_msg_tokens(m) for m in trailing_users)
 
         remaining_budget = PROMPT_BUDGET - sys_tokens - tools_tokens - trailing_tokens
@@ -181,8 +202,15 @@ async def chat_completions(request: Request):
                 kept_history.insert(0, msg)
                 remaining_budget -= msg_toks
             else:
-                logger.info(f"🗑️ Dropping oldest chat history entirely to respect token budget.")
+                logger.info(f"🗑️ Reached token limit. Dropping older history.")
                 break 
+
+        # FIXED: Orphaned Tool Cleanup (prevent model hallucinations)
+        while kept_history:
+            if kept_history[0].get("role") == "tool":
+                kept_history.pop(0)
+            else:
+                break
 
         new_messages = []
         if sys_msg: new_messages.append(sys_msg)
@@ -213,45 +241,65 @@ async def chat_completions(request: Request):
     dump_to_debug_log(f"OUTBOUND TO LLAMA.CPP (Compacted to {final_prompt_tokens} toks)", clean_body)
 
     async def stream_generator():
-        queue = asyncio.Queue()
-        is_done = asyncio.Event()
+        async with get_proxy_lock():
+            if await request.is_disconnected():
+                logger.info("👻 Client dropped connection while in queue. Skipping request.")
+                return
 
-        async def fetch_stream():
+            queue = asyncio.Queue()
+            is_done = asyncio.Event()
+
+            async def fetch_stream():
+                try:
+                    async with httpx.AsyncClient() as client:
+                        async with client.stream("POST", f"{LLAMA_CPP_URL}/v1/chat/completions", json=clean_body, timeout=1800.0) as response:
+                            if response.status_code != 200:
+                                err_text = await response.aread()
+                                logger.error(f"❌ llama.cpp returned {response.status_code}: {err_text.decode('utf-8', errors='ignore')}")
+                                await queue.put(err_text)
+                                return
+                            async for chunk in response.aiter_bytes():
+                                await queue.put(chunk)
+                except asyncio.CancelledError:
+                    pass 
+                except Exception as e:
+                    logger.error(f"Stream dropped: {e}")
+                finally:
+                    is_done.set()
+
+            fetch_task = asyncio.create_task(fetch_stream())
+            keep_alive_chunk = b': keep-alive\n\n'
+
             try:
-                async with httpx.AsyncClient() as client:
-                    async with client.stream("POST", f"{LLAMA_CPP_URL}/v1/chat/completions", json=clean_body, timeout=1800.0) as response:
-                        if response.status_code != 200:
-                            err_text = await response.aread()
-                            logger.error(f"❌ llama.cpp returned {response.status_code}: {err_text.decode('utf-8', errors='ignore')}")
-                            await queue.put(err_text)
-                            return
-                        async for chunk in response.aiter_bytes():
-                            await queue.put(chunk)
-            except Exception as e:
-                logger.error(f"Stream dropped: {e}")
-            finally:
-                is_done.set()
-
-        asyncio.create_task(fetch_stream())
-        keep_alive_chunk = b'data: {"choices":[{"delta":{"content":""},"index":0,"finish_reason":null}]}\n\n'
-
-        while not is_done.is_set():
-            try:
-                chunk = await asyncio.wait_for(queue.get(), timeout=10.0)
-                yield chunk
-            except asyncio.TimeoutError:
-                logger.info("⏳ llama.cpp is crunching context... Sending heartbeat to IDE.")
-                yield keep_alive_chunk
-                
-        while not queue.empty():
-            yield await queue.get()
+                while not is_done.is_set():
+                    try:
+                        chunk = await asyncio.wait_for(queue.get(), timeout=5.0)
+                        yield chunk
+                    except asyncio.TimeoutError:
+                        logger.info("⏳ llama.cpp is crunching context... Sending heartbeat to IDE.")
+                        yield keep_alive_chunk
+                        
+                while not queue.empty():
+                    yield await queue.get()
+            except asyncio.CancelledError:
+                logger.info("⏹️ IDE closed connection (User stopped or Agent loop advanced). Cancelling task...")
+                fetch_task.cancel()
+                raise
 
     if clean_body.get("stream", False):
         return StreamingResponse(stream_generator(), media_type="text/event-stream")
     else:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(f"{LLAMA_CPP_URL}/v1/chat/completions", json=clean_body, timeout=1800.0)
-            return Response(content=resp.content, status_code=resp.status_code)
+        async with get_proxy_lock():
+            if await request.is_disconnected():
+                logger.info("👻 Client dropped connection while in queue. Skipping request.")
+                return Response(status_code=499)
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(f"{LLAMA_CPP_URL}/v1/chat/completions", json=clean_body, timeout=1800.0)
+                    return Response(content=resp.content, status_code=resp.status_code)
+            except asyncio.CancelledError:
+                logger.info("⏹️ IDE closed connection during request. Cancelling task...")
+                raise
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def proxy_catch_all(request: Request, path: str):

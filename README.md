@@ -1,3 +1,6 @@
+Here is the updated `README.md`. I have changed the debug logging behavior so that it defaults to off, replaced the `--disable-debug` flag with `--enable-debug`, and updated the descriptions accordingly.
+
+```markdown
 # TWOC Visual Studio Copilot Local AI Proxy
 
 A lightweight, intelligent API middleware designed to bridge the gap between Visual Studio 2026's built-in Copilot chat system using the Ollama option and local LLM servers (like `llama.cpp` and `Ollama`).
@@ -6,7 +9,7 @@ A lightweight, intelligent API middleware designed to bridge the gap between Vis
 
 When using local AI models with IDE agents like GitHub Copilot, you will eventually hit two roadblocks:
 
-1. **The Context Crash (400 Bad Request):** Copilot sends large hidden payloads containing your workspace context and tool JSON schemas. If this exceeds your local model's context limit (e.g., yhe default of 32k this script uses), the local server crashes.
+1. **The Context Crash (400 Bad Request):** Copilot sends large hidden payloads containing your workspace context and tool JSON schemas. If this exceeds your local model's context limit (e.g., the default of 32k this script uses), the local server crashes.
 
 2. **The IDE Timeout:** Processing 30,000 tokens on a local GPU/CPU can take time depending on your hardware. If the local model takes longer than 30 seconds to read the prompt, Visual Studio assumes the server is dead and drops the connection. This allows you to run large models on modest hardware as long as you are okay with waiting.
 
@@ -48,15 +51,13 @@ python -m nuitka --standalone --onefile --enable-plugin=anti-bloat,implicit-impo
 
 1. Open Visual Studio 2026
 2. Make sure that the Copilot panel is open.  
-2. Access the feature of adding providers through the Copilot chat panel inside the drop-down list where built-in options like Claude and ChatGPT exist.
-3. Set the **Provider** to Ollama.
-4. Set the **Base URL** to `http://127.0.0.1:4000/v1` (the proxy's port).
-5. Give your AI a name and use that URL again for the related field. It does not need to be the filename of the model because the proxy handles that by communicating with the AI server.
-6. The two token limits can be left at their default values. The proxy will handle the actual hardware limits.
-7. Save and then make sure that entry is checked. From a drop-down provider list, you should see your local model under the Claude and GPT options. 
+3. Access the feature of adding providers through the Copilot chat panel inside the drop-down list where built-in options like Claude and ChatGPT exist.
+4. Set the **Provider** to Ollama.
+5. Set the **Base URL** to `http://127.0.0.1:4000/v1` (the proxy's port).
+6. Give your AI a name and use that URL again for the related field. It does not need to be the filename of the model because the proxy handles that by communicating with the AI server.
+7. The two token limits can be left at their default values. The proxy will handle the actual hardware limits.
+8. Save and then make sure that entry is checked. From a drop-down provider list, you should see your local model under the Claude and GPT options. 
 <img width="609" height="531" alt="vs2016-byom-ollama" src="https://github.com/user-attachments/assets/c980edf3-8ef6-4050-8032-2f8c1669e95d" />
-
-
 
 ## 🖥️ Backend Server Examples
 
@@ -68,7 +69,7 @@ llama-server.exe -m Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --port 8080 -ngl 9 -t 12 -c 
 ```
 Take note that you likely need the coder alias for it to communicate with the IDE in an agentic way.
 
-heres an additional example for llama.cpp, in this case a smaller LLM meant to fit into 8GB of VRAM ON A GPU. So far I havent had luck with this size of model doing agentic programming with tool calling: 
+Here's an additional example for llama.cpp, in this case a smaller LLM meant to fit into 8GB of VRAM ON A GPU. So far I haven't had luck with this size of model doing agentic programming with tool calling: 
 ```bash
 llama-server.exe -m gemma-4-E4B-it-IQ4_NL.gguf --port 8080 -ngl 99 -c 32768 -b 4096 --flash-attn on -ctk q8_0 -ctv q8_0 --alias gemma-coder
 ```
@@ -93,14 +94,17 @@ All arguments can also be set via environment variables, which is useful for run
 | `--port` | `PROXY_PORT` | The port this proxy listens on | `4000` |
 | `--host` | `PROXY_HOST` | The host IP this proxy binds to | `0.0.0.0` |
 | `--disable-scrub` | *(flag only)* | Disable trailing assistant prefill scrubbing | `false` |
-| `--disable-debug` | *(flag only)* | Disable payload logging to `proxy_debug.log` | `false` |
+| `--enable-debug` | *(flag only)* | Enable payload logging to `proxy_debug.log` | `false` |
 
 ## 🐞 Debug Logging
 
-By default, the proxy logs the full inbound and outbound JSON payloads to a file called `proxy_debug.log` in the working directory. This is useful for diagnosing compaction behavior or unexpected model responses.
+By default, the proxy does NOT log the full inbound and outbound JSON payloads. 
 
-> **Note:** This file can grow large quickly during active use. Pass `--disable-debug` to turn it off.
+If you need to diagnose compaction behavior or unexpected model responses, pass `--enable-debug` to turn it on. This will write full payloads to a file called `proxy_debug.log` in the working directory.
+
+> **Note:** This file can grow large quickly during active use, so it is recommended to keep it disabled during normal operation.
 
 ## License
 
 This project is licensed under the [GPL-3.0 License](LICENSE).
+```
