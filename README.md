@@ -1,5 +1,3 @@
-Here is the updated `README.md`. I have changed the debug logging behavior so that it defaults to off, replaced the `--disable-debug` flag with `--enable-debug`, and updated the descriptions accordingly.
-
 ```markdown
 # TWOC Visual Studio Copilot Local AI Proxy
 
