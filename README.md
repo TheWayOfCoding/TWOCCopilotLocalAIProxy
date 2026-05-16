@@ -105,5 +105,5 @@ If you need to diagnose compaction behavior or unexpected model responses, pass 
 
 ## License
 
-This project is licensed under the [GPL-3.0 License](LICENSE).
+This project is licensed under the [AGPL-3.0 License](LICENSE).
 ```
