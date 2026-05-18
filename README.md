@@ -64,13 +64,13 @@ You can point the proxy to any OpenAI-compatible local server. By default, it ta
 
 **llama.cpp Example (Highly Recommended for large contexts):**
 ```bash
-llama-server.exe -m Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --port 8080 -ngl 9 -t 12 -c 32768 -b 4096 -ub 512 --flash-attn on -ctk q8_0 -ctv q8_0 --alias qwen-coder --mlock
+llama-server.exe -m Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --port 8080 -ngl 99 -c 32768 -b 4096 -np 1 --kv-unified --flash-attn on -ctk q8_0 -ctv q8_0 --alias qwen-coder
 ```
 Take note that you likely need the coder alias for it to communicate with the IDE in an agentic way.
 
-Here's an additional example for llama.cpp, in this case a smaller LLM meant to fit into 8GB of VRAM ON A GPU. So far I haven't had luck with this size of model doing agentic programming with tool calling: 
+Here's an additional example for llama.cpp, in this case a smaller LLM meant to fit entirely into 8GB of VRAM ON A GPU. So far I haven't had luck with this size of model doing agentic programming with tool calling: 
 ```bash
-llama-server.exe -m gemma-4-E4B-it-IQ4_NL.gguf --port 8080 -ngl 99 -c 32768 -b 4096 --flash-attn on -ctk q8_0 -ctv q8_0 --alias gemma-coder
+llama-server.exe -m gemma-4-E4B-it-IQ4_NL.gguf --port 8080 -ngl 99 -c 32768 -b 4096 -np 1 --kv-unified --flash-attn on -ctk q8_0 -ctv q8_0 --alias gemma-coder
 ```
 
 **Ollama Example:**
@@ -80,6 +80,21 @@ ollama run Qwen3.6-35B-A3B-UD-Q4_K_XL
 # Then run the proxy pointing to Ollama's port:
 proxy.exe --target-url http://127.0.0.1:11434
 ```
+
+## 🏎️ Optimizing `llama.cpp` for Limited Hardware
+
+If you are running models, like with 35B parameters, on hardware with limited GPU VRAM (e.g., an 8GB RTX 4060 that I'm using) relying heavily on system RAM (e.g., 64GB DDR5), context processing speed becomes your biggest bottleneck.
+
+Through testing, there are three critical `llama.cpp` flags required to lower RAM/CPU overhead when dealing with Visual Studio's 30,000+ token payloads:
+
+1. **Auto-Offload GPU Layers (`-ngl 99`):** 
+   Do not try to guess your exact layer count (e.g., `-ngl 12`). Setting a high ceiling like `99` forces `llama.cpp` to auto-allocate exactly what fits in your VRAM. If you hardcode a low number, you risk splitting the model's compute graph, which disables fast custom CUDA kernels (like the fused Gated Delta Net) and forces the model back to agonizingly slow CPU processing.
+   
+2. **Restrict Parallel Slots (`-np 1` or `--parallel 1`):**
+   By default, `llama.cpp` may spin up 4 parallel request slots. At 32,000+ context per slot, your KV cache overhead will instantly use tens of gigabytes of your system RAM. Because this proxy intelligently queues requests from Visual Studio sequentially anyway, restricting the server to `1` slot saves your memory and focuses all CPU/GPU compute on the active request. The purpose here is for a single developer to be using the proxy locally.
+
+3. **Enable Unified KV Cache (`--kv-unified`):**
+   Visual Studio Copilot constantly re-sends your active code files. Without unified caching enabled, the AI has to recalculate tens of thousands of tokens from scratch on every single prompt, which can take 3–5 minutes on a CPU bottleneck. `--kv-unified` allows `llama.cpp` to retain idle slot memory between requests. As long as your system prompt and older code hasn't changed, `llama.cpp` falls back on its saved state and only crunches the *new* words you typed, making responses near-instantaneous.
 
 ## 📜 Command Line Arguments
 
@@ -106,4 +121,3 @@ If you need to diagnose compaction behavior or unexpected model responses, pass 
 ## License
 
 This project is licensed under the [AGPL-3.0 License](LICENSE).
-```
