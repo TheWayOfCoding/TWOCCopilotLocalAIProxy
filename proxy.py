@@ -121,7 +121,11 @@ def extract_all_text(obj):
     if not obj: return ""
     if isinstance(obj, str): return obj
     if isinstance(obj, list): return "\n".join(extract_all_text(i) for i in obj if i)
-    if isinstance(obj, dict): return "\n".join(extract_all_text(v) for k, v in obj.items() if isinstance(v, (str, list, dict)))
+    if isinstance(obj, dict): 
+        # FIX: prevent injecting `"text\n"` prefix when VS sends multipart format
+        if "text" in obj and isinstance(obj["text"], str):
+            return obj["text"]
+        return "\n".join(extract_all_text(v) for k, v in obj.items() if isinstance(v, (str, list, dict)))
     return str(obj)
 
 def count_msg_tokens(msg: dict) -> int:
@@ -179,7 +183,8 @@ async def chat_completions(request: Request):
         if trailing_tokens > max_user_allowance and trailing_users:
             encoded_user = encoder.encode(trailing_users[0]["content"], disallowed_special=())
             if len(encoded_user) > max_user_allowance:
-                keep_top = 2500  # Copilot strict tool-call instructions live here
+                # FIX: Dynamically scale top context to avoid slicing tool schemas in half
+                keep_top = min(8000, max(2500, max_user_allowance // 2)) 
                 keep_bottom = max_user_allowance - keep_top
                 
                 if keep_bottom > 0:
@@ -258,8 +263,9 @@ async def chat_completions(request: Request):
                                 logger.error(f"❌ llama.cpp returned {response.status_code}: {err_text.decode('utf-8', errors='ignore')}")
                                 await queue.put(err_text)
                                 return
-                            async for chunk in response.aiter_bytes():
-                                await queue.put(chunk)
+                            # FIX: Use aiter_lines to prevent injecting keep-alives mid-JSON
+                            async for line in response.aiter_lines():
+                                await queue.put(line.encode('utf-8') + b'\n')
                 except asyncio.CancelledError:
                     pass 
                 except Exception as e:
